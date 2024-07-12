@@ -270,34 +270,46 @@ public class StationDatabaseManager {
     }
 
     public void removeAllStationSources(List<StationSource> toBeRemoved) {
-        for (Iterator<Network> networkIterator = getStationDatabase().getNetworks().iterator(); networkIterator.hasNext(); ) {
+        processNetworksAndStations(toBeRemoved);
+        getStationDatabase().getStationSources().removeAll(toBeRemoved);
+        fireUpdateEvent();
+    }
+
+    private void processNetworksAndStations(List<StationSource> toBeRemoved) {
+        Iterator<Network> networkIterator = getStationDatabase().getNetworks().iterator();
+        while (networkIterator.hasNext()) {
             Network network = networkIterator.next();
-            for (Iterator<Station> stationIterator = network.getStations().iterator(); stationIterator.hasNext(); ) {
-                Station station = stationIterator.next();
-                for (Iterator<Channel> channelIterator = station.getChannels().iterator(); channelIterator.hasNext(); ) {
-                    Channel channel = channelIterator.next();
-                    toBeRemoved.forEach(channel.getStationSources()::remove);
-                    if (channel.getStationSources().isEmpty()) {
-                        channelIterator.remove();
-                    }
-                }
-                if (station.getChannels().isEmpty()) {
-                    stationIterator.remove();
-                } else if (station.getSelectedChannel() != null) {
-                    if (!station.getChannels().contains(station.getSelectedChannel())) {
-                        station.selectBestAvailableChannel();
-                    }
-                }
-            }
+            processStations(network, toBeRemoved);
             if (network.getStations().isEmpty()) {
                 networkIterator.remove();
             }
         }
-
-        getStationDatabase().getStationSources().removeAll(toBeRemoved);
-
-        fireUpdateEvent();
     }
+
+    private void processStations(Network network, List<StationSource> toBeRemoved) {
+        Iterator<Station> stationIterator = network.getStations().iterator();
+        while (stationIterator.hasNext()) {
+            Station station = stationIterator.next();
+            processChannels(station, toBeRemoved);
+            if (station.getChannels().isEmpty()) {
+                stationIterator.remove();
+            } else if (station.getSelectedChannel() != null && !station.getChannels().contains(station.getSelectedChannel())) {
+                station.selectBestAvailableChannel();
+            }
+        }
+    }
+
+    private void processChannels(Station station, List<StationSource> toBeRemoved) {
+        Iterator<Channel> channelIterator = station.getChannels().iterator();
+        while (channelIterator.hasNext()) {
+            Channel channel = channelIterator.next();
+            toBeRemoved.forEach(channel.getStationSources()::remove);
+            if (channel.getStationSources().isEmpty()) {
+                channelIterator.remove();
+            }
+        }
+    }
+
 
     /**
      * @return {totalStations, connectedStations, runningSeedlinks, totalSeedlinks}
