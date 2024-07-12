@@ -8,6 +8,7 @@ import globalquake.core.analysis.Event;
 import globalquake.core.earthquake.data.*;
 import globalquake.core.earthquake.interval.DepthConfidenceInterval;
 import globalquake.core.earthquake.interval.PolygonConfidenceInterval;
+import globalquake.core.earthquake.quality.ScanAreaParameters;
 import globalquake.core.events.specific.QuakeCreateEvent;
 import globalquake.core.events.specific.QuakeRemoveEvent;
 import globalquake.core.events.specific.QuakeUpdateEvent;
@@ -251,9 +252,11 @@ public class EarthquakeAnalysis {
         double _lat = cluster.getAnchorLat();
         double _lon = cluster.getAnchorLon();
 
+        ScanAreaParameters params;
         if (far && (previousHypocenter == null || previousHypocenter.correctEvents < 24 || previousHypocenter.getCorrectness() < 0.8)) {
             // phase 1 search far from ANCHOR (it's not very certain)
-            bestHypocenter = scanArea(selectedEvents, 90.0 / 360.0 * GeoUtils.EARTH_CIRCUMFERENCE, (int) (40000 * pointMultiplier), _lat, _lon, 6 + iterationsDifference, maxDepth, finderSettings);
+            params = new ScanAreaParameters(selectedEvents, 90.0 / 360.0 * GeoUtils.EARTH_CIRCUMFERENCE, (int) (40000 * pointMultiplier), _lat, _lon, 6 + iterationsDifference, maxDepth, finderSettings);
+            bestHypocenter = scanArea(params);
             Logger.tag("Hypocs").debug("FAR: " + (System.currentTimeMillis() - timeMillis));
             Logger.tag("Hypocs").debug(bestHypocenter.correctStations + " / " + bestHypocenter.err);
             _lat = bestHypocenter.lat;
@@ -263,7 +266,8 @@ public class EarthquakeAnalysis {
         if (previousHypocenter == null || previousHypocenter.correctEvents < 42 || previousHypocenter.getCorrectness() < 0.9) {
             // phase 2A search region near BEST or ANCHOR (it's quite certain)
             timeMillis = System.currentTimeMillis();
-            PreliminaryHypocenter hyp = scanArea(selectedEvents, 2500.0, (int) (20000 * pointMultiplier), _lat, _lon, 7 + iterationsDifference, maxDepth, finderSettings);
+            params = new ScanAreaParameters(selectedEvents, 2500.0, (int) (20000 * pointMultiplier), _lat, _lon, 7 + iterationsDifference, maxDepth, finderSettings);
+            PreliminaryHypocenter hyp = scanArea(params);
             bestHypocenter = selectBetterHypocenter(hyp, bestHypocenter);
             _lat = bestHypocenter.lat;
             _lon = bestHypocenter.lon;
@@ -272,7 +276,8 @@ public class EarthquakeAnalysis {
         } else {
             // phase 2B search region closer BEST or ANCHOR (it assumes it's almost right)
             timeMillis = System.currentTimeMillis();
-            PreliminaryHypocenter hyp = scanArea(selectedEvents, 1000.0, (int) (10000 * pointMultiplier), _lat, _lon, 7 + iterationsDifference, maxDepth, finderSettings);
+            params = new ScanAreaParameters(selectedEvents, 1000.0, (int) (10000 * pointMultiplier), _lat, _lon, 7 + iterationsDifference, maxDepth, finderSettings);
+            PreliminaryHypocenter hyp = scanArea(params);
             bestHypocenter = selectBetterHypocenter(hyp, bestHypocenter);
             _lat = bestHypocenter.lat;
             _lon = bestHypocenter.lon;
@@ -282,7 +287,8 @@ public class EarthquakeAnalysis {
 
         // phase 3 find exact area
         timeMillis = System.currentTimeMillis();
-        PreliminaryHypocenter hyp = scanArea(selectedEvents, 100.0, (int) (4000 * pointMultiplier), _lat, _lon, 8 + iterationsDifference, maxDepth, finderSettings);
+        params = new ScanAreaParameters(selectedEvents, 100.0, (int) (4000 * pointMultiplier), _lat, _lon, 8 + iterationsDifference, maxDepth, finderSettings);
+        PreliminaryHypocenter hyp = scanArea(params);
         bestHypocenter = selectBetterHypocenter(hyp, bestHypocenter);
         Logger.tag("Hypocs").debug("EXACT: " + (System.currentTimeMillis() - timeMillis));
         Logger.tag("Hypocs").debug(bestHypocenter.correctStations + " / " + bestHypocenter.err);
@@ -291,7 +297,8 @@ public class EarthquakeAnalysis {
         timeMillis = System.currentTimeMillis();
         _lat = bestHypocenter.lat;
         _lon = bestHypocenter.lon;
-        hyp = scanArea(selectedEvents, 10.0, (int) (4000 * pointMultiplier), _lat, _lon, 10 + iterationsDifference, maxDepth, finderSettings);
+        params = new ScanAreaParameters(selectedEvents, 10.0, (int) (4000 * pointMultiplier), _lat, _lon, 10 + iterationsDifference, maxDepth, finderSettings);
+        hyp = scanArea(params);
         bestHypocenter = selectBetterHypocenter(hyp, bestHypocenter);
         Logger.tag("Hypocs").debug("DEPTH: " + (System.currentTimeMillis() - timeMillis));
         Logger.tag("Hypocs").debug(bestHypocenter.correctStations + " / " + bestHypocenter.err);
@@ -744,16 +751,15 @@ public class EarthquakeAnalysis {
 
     public static final double PHI = 1.61803398875;
 
-    private PreliminaryHypocenter scanArea(List<PickedEvent> events, double maxDist, int points, double _lat, double _lon, int depthIterations,
-                                           double maxDepth, HypocenterFinderSettings finderSettings) {
+    private PreliminaryHypocenter scanArea(ScanAreaParameters params) {
         int CPUS = Runtime.getRuntime().availableProcessors();
-        double c = maxDist / Math.sqrt(points);
-        double one = points / (double) CPUS;
+        double c = params.getMaxDist() / Math.sqrt(params.getPoints());
+        double one = params.getPoints() / (double) CPUS;
 
         List<Integer> integerList = IntStream.range(0, CPUS).boxed().toList();
         return (Settings.parallelHypocenterLocations ? integerList.parallelStream() : integerList.stream()).map(
                 cpu -> {
-                    List<ExactPickedEvent> pickedEvents = createListOfExactPickedEvents(events);
+                    List<ExactPickedEvent> pickedEvents = createListOfExactPickedEvents(params.getEvents());
                     HypocenterFinderThreadData threadData = new HypocenterFinderThreadData(pickedEvents.size());
 
                     int start = (int) (cpu * one);
@@ -762,18 +768,19 @@ public class EarthquakeAnalysis {
                     for (int n = start; n < end; n++) {
                         double ang = 360.0 / (PHI * PHI) * n;
                         double dist = Math.sqrt(n) * c;
-                        double[] latLon = GeoUtils.moveOnGlobe(_lat, _lon, dist, ang);
+                        double[] latLon = GeoUtils.moveOnGlobe(params.getLat(), params.getLon(), dist, ang);
 
                         double lat = latLon[0];
                         double lon = latLon[1];
 
                         calculateDistances(pickedEvents, lat, lon);
-                        getBestAtDepth(depthIterations, maxDepth, finderSettings, 0, lat, lon, pickedEvents, threadData);
+                        getBestAtDepth(params.getDepthIterations(), params.getMaxDepth(), params.getFinderSettings(), 0, lat, lon, pickedEvents, threadData);
                     }
                     return threadData.bestHypocenter;
                 }
         ).reduce(EarthquakeAnalysis::selectBetterHypocenter).orElse(null);
     }
+
 
     @SuppressWarnings("unused")
     private PreliminaryHypocenter scanAreaOldd(List<PickedEvent> events, double distanceResolution, double maxDist,
