@@ -39,7 +39,7 @@ public class Event implements Serializable {
     private int updatesCount;
     public StationReport report;
 
-    private transient int nextPWaveCalc;
+    transient int nextPWaveCalc;
     private final transient Analysis analysis;
 
     private boolean isSWave;
@@ -212,7 +212,7 @@ public class Event implements Serializable {
                     try {
                         readLock.lock();
                         if (waveformBuffer != null) {
-                            findPWaveMethod1();
+                            waveformBuffer.findPWave(this);
                         }
                     } finally {
                         readLock.unlock();
@@ -224,75 +224,75 @@ public class Event implements Serializable {
 
     // T-30sec
     // first estimation of p wave
-    private void findPWaveMethod1() {
-        // 0 - when first detected
-        // 1 - first upgrade etc...
-        if (waveformBuffer.isEmpty()) {
-            return;
-        }
-        int strenghtLevel = nextPWaveCalc;
-        long lookBack = (getStart() - (long) ((60.0 / strenghtLevel) * 1000));
-
-        List<Double> slows = new ArrayList<>();
-
-        double maxSpecial = -Double.MAX_VALUE;
-        double minSpecial = Double.MAX_VALUE;
-
-        int indexLookBack = getWaveformBuffer().getClosestIndex(lookBack);
-        long lookBackTime = getWaveformBuffer().getTime(indexLookBack);
-
-        while (indexLookBack != getWaveformBuffer().getNextSlot() && lookBackTime <= getStart()) {
-            slows.add(waveformBuffer.getMediumRatio(indexLookBack));
-            double spec = waveformBuffer.getSpecialRatio(indexLookBack);
-            if (spec > 0) {
-                if (spec > maxSpecial) {
-                    maxSpecial = spec;
-                }
-                if (spec < minSpecial) {
-                    minSpecial = spec;
-                }
-            }
-
-            indexLookBack = (indexLookBack + 1) % getWaveformBuffer().getSize();
-            lookBackTime = getWaveformBuffer().getTime(indexLookBack);
-        }
-
-        maxSpecial = Math.max(minSpecial * 5.0, maxSpecial);
-
-        Collections.sort(slows);
-
-        double slow15Pct = slows.get((int) ((slows.size() - 1) * 0.175));
-
-        double mul = SPECIAL_PERCENTILE[strenghtLevel] * 1.1;
-        double specialThreshold = maxSpecial * mul + (1 - mul) * minSpecial;
-
-        double slowThresholdMultiplier = SLOW_THRESHOLD_MULTIPLIERS[strenghtLevel];
-
-        long pWave = -1;
-
-        // going backwards!
-        int index = waveformBuffer.getClosestIndex(getStart());
-        long time = waveformBuffer.getTime(index);
-        while (index != waveformBuffer.getOldestDataSlot() && time >= lookBack) {
-
-            boolean ratioOK = waveformBuffer.getRatio(index) <= slow15Pct * (slowThresholdMultiplier * 1.25);
-            boolean specialOK = waveformBuffer.getSpecialRatio(index) <= specialThreshold;
-            if (time <= getStart()) {
-                if (ratioOK && specialOK) {
-                    pWave = time;
-                    break;
-                }
-            }
-
-            index -= 1;
-            if (index < 0) {
-                index = waveformBuffer.getSize() - 1;
-            }
-            time = waveformBuffer.getTime(index);
-        }
-
-        setpWave(pWave);
-    }
+//    private void findPWaveMethod1() {
+//        // 0 - when first detected
+//        // 1 - first upgrade etc...
+//        if (waveformBuffer.isEmpty()) {
+//            return;
+//        }
+//        int strenghtLevel = nextPWaveCalc;
+//        long lookBack = (getStart() - (long) ((60.0 / strenghtLevel) * 1000));
+//
+//        List<Double> slows = new ArrayList<>();
+//
+//        double maxSpecial = -Double.MAX_VALUE;
+//        double minSpecial = Double.MAX_VALUE;
+//
+//        int indexLookBack = getWaveformBuffer().getClosestIndex(lookBack);
+//        long lookBackTime = getWaveformBuffer().getTime(indexLookBack);
+//
+//        while (indexLookBack != getWaveformBuffer().getNextSlot() && lookBackTime <= getStart()) {
+//            slows.add(waveformBuffer.getMediumRatio(indexLookBack));
+//            double spec = waveformBuffer.getSpecialRatio(indexLookBack);
+//            if (spec > 0) {
+//                if (spec > maxSpecial) {
+//                    maxSpecial = spec;
+//                }
+//                if (spec < minSpecial) {
+//                    minSpecial = spec;
+//                }
+//            }
+//
+//            indexLookBack = (indexLookBack + 1) % getWaveformBuffer().getSize();
+//            lookBackTime = getWaveformBuffer().getTime(indexLookBack);
+//        }
+//
+//        maxSpecial = Math.max(minSpecial * 5.0, maxSpecial);
+//
+//        Collections.sort(slows);
+//
+//        double slow15Pct = slows.get((int) ((slows.size() - 1) * 0.175));
+//
+//        double mul = SPECIAL_PERCENTILE[strenghtLevel] * 1.1;
+//        double specialThreshold = maxSpecial * mul + (1 - mul) * minSpecial;
+//
+//        double slowThresholdMultiplier = SLOW_THRESHOLD_MULTIPLIERS[strenghtLevel];
+//
+//        long pWave = -1;
+//
+//        // going backwards!
+//        int index = waveformBuffer.getClosestIndex(getStart());
+//        long time = waveformBuffer.getTime(index);
+//        while (index != waveformBuffer.getOldestDataSlot() && time >= lookBack) {
+//
+//            boolean ratioOK = waveformBuffer.getRatio(index) <= slow15Pct * (slowThresholdMultiplier * 1.25);
+//            boolean specialOK = waveformBuffer.getSpecialRatio(index) <= specialThreshold;
+//            if (time <= getStart()) {
+//                if (ratioOK && specialOK) {
+//                    pWave = time;
+//                    break;
+//                }
+//            }
+//
+//            index -= 1;
+//            if (index < 0) {
+//                index = waveformBuffer.getSize() - 1;
+//            }
+//            time = waveformBuffer.getTime(index);
+//        }
+//
+//        setpWave(pWave);
+//    }
 
     public int getUpdatesCount() {
         return updatesCount;
