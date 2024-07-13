@@ -1,8 +1,14 @@
 package globalquake.core.analysis;
 
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
+
+import static globalquake.core.analysis.Event.SLOW_THRESHOLD_MULTIPLIERS;
+import static globalquake.core.analysis.Event.SPECIAL_PERCENTILE;
 
 public class WaveformBuffer {
     public static final int COMPUTED_COUNT_CLIENT = 4;
@@ -289,5 +295,75 @@ public class WaveformBuffer {
         if(_size != size){
             _resize(_size);
         }
+    }
+
+    public void findPWave(Event event) {
+        // 0 - when first detected
+        // 1 - first upgrade etc...
+        if (isEmpty()) {
+            return;
+        }
+        int strenghtLevel = event.nextPWaveCalc;
+        long lookBack = (event.getStart() - (long) ((60.0 / strenghtLevel) * 1000));
+
+        List<Double> slows = new ArrayList<>();
+
+        double maxSpecial = -Double.MAX_VALUE;
+        double minSpecial = Double.MAX_VALUE;
+
+        int indexLookBack = getClosestIndex(lookBack);
+        long lookBackTime = getTime(indexLookBack);
+
+        while (indexLookBack != getNextSlot() && lookBackTime <= event.getStart()) {
+            slows.add(getMediumRatio(indexLookBack));
+            double spec = getSpecialRatio(indexLookBack);
+            if (spec > 0) {
+                if (spec > maxSpecial) {
+                    maxSpecial = spec;
+                }
+                if (spec < minSpecial) {
+                    minSpecial = spec;
+                }
+            }
+
+            indexLookBack = (indexLookBack + 1) % getSize();
+            lookBackTime = getTime(indexLookBack);
+        }
+
+        maxSpecial = Math.max(minSpecial * 5.0, maxSpecial);
+
+        Collections.sort(slows);
+
+        double slow15Pct = slows.get((int) ((slows.size() - 1) * 0.175));
+
+        double mul = SPECIAL_PERCENTILE[strenghtLevel] * 1.1;
+        double specialThreshold = maxSpecial * mul + (1 - mul) * minSpecial;
+
+        double slowThresholdMultiplier = SLOW_THRESHOLD_MULTIPLIERS[strenghtLevel];
+
+        long pWave = -1;
+
+        // going backwards!
+        int index = getClosestIndex(event.getStart());
+        long time = getTime(index);
+        while (index != getOldestDataSlot() && time >= lookBack) {
+
+            boolean ratioOK = getRatio(index) <= slow15Pct * (slowThresholdMultiplier * 1.25);
+            boolean specialOK = getSpecialRatio(index) <= specialThreshold;
+            if (time <= event.getStart()) {
+                if (ratioOK && specialOK) {
+                    pWave = time;
+                    break;
+                }
+            }
+
+            index -= 1;
+            if (index < 0) {
+                index = getSize() - 1;
+            }
+            time = getTime(index);
+        }
+
+        event.setpWave(pWave);
     }
 }
